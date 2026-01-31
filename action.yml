@@ -1,4 +1,4 @@
-name: "Coolify Deploy"
+name: "Coolify Deploy Trigger"
 description: "Trigger a deployment on Coolify via the API"
 author: "AmenityDev"
 
