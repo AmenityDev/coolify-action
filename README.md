@@ -117,8 +117,8 @@ jobs:
 ## Setting Up Your Coolify Token
 
 1. Go to your Coolify instance
-2. Navigate to **Security** → **API Tokens**
-3. Create a new token with appropriate permissions
+2. Navigate to **Keys & Tokens** → **API Tokens**
+3. Create a new token with `deploy` permission
 4. Add the token to your GitHub repository secrets as `COOLIFY_TOKEN`
 
 ## License
