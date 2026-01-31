@@ -1,0 +1,109 @@
+name: "Coolify Deploy"
+description: "Trigger a deployment on Coolify via the API"
+author: "AmenityDev"
+
+branding:
+  icon: "upload-cloud"
+  color: "purple"
+
+inputs:
+  coolify_url:
+    description: "The base URL of your Coolify instance (e.g., https://coolify.example.com)"
+    required: true
+  token:
+    description: "Coolify API token for authentication"
+    required: true
+  uuid:
+    description: "Resource UUID(s). Comma separated list is also accepted."
+    required: false
+  tag:
+    description: "Tag name(s). Comma separated list is also accepted. Cannot be used with pr parameter."
+    required: false
+  force:
+    description: "Force rebuild without cache"
+    required: false
+    default: "false"
+
+outputs:
+  deployments:
+    description: "JSON array of deployment information"
+    value: ${{ steps.deploy.outputs.deployments }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        if [[ -z "${{ inputs.uuid }}" && -z "${{ inputs.tag }}" ]]; then
+          echo "::error::Either 'uuid' or 'tag' must be provided"
+          exit 1
+        fi
+
+        # Check if this is a PR event and tag is provided (not allowed together)
+        if [[ "${{ github.event_name }}" == "pull_request" && -n "${{ inputs.tag }}" ]]; then
+          echo "::error::Cannot use 'tag' parameter with pull request events"
+          exit 1
+        fi
+
+    - name: Build query parameters
+      id: build-params
+      shell: bash
+      run: |
+        PARAMS=""
+
+        if [[ -n "${{ inputs.uuid }}" ]]; then
+          PARAMS="${PARAMS}&uuid=${{ inputs.uuid }}"
+        fi
+
+        if [[ -n "${{ inputs.tag }}" ]]; then
+          PARAMS="${PARAMS}&tag=${{ inputs.tag }}"
+        fi
+
+        if [[ "${{ inputs.force }}" == "true" ]]; then
+          PARAMS="${PARAMS}&force=true"
+        fi
+
+        # Add PR number if this is a pull request event
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          echo "Detected pull request #${PR_NUMBER}"
+          PARAMS="${PARAMS}&pr=${PR_NUMBER}"
+        fi
+
+        # Remove leading &
+        PARAMS="${PARAMS#&}"
+        echo "query_params=${PARAMS}" >> $GITHUB_OUTPUT
+
+    - name: Trigger Coolify deployment
+      id: deploy
+      shell: bash
+      run: |
+        COOLIFY_URL="${{ inputs.coolify_url }}"
+        # Remove trailing slash if present
+        COOLIFY_URL="${COOLIFY_URL%/}"
+
+        API_URL="${COOLIFY_URL}/api/v1/deploy?${{ steps.build-params.outputs.query_params }}"
+
+        echo "Triggering deployment..."
+        echo "URL: ${API_URL}"
+
+        RESPONSE=$(curl -s -w "\n%{http_code}" \
+          -X GET \
+          -H "Authorization: Bearer ${{ inputs.token }}" \
+          -H "Accept: application/json" \
+          "${API_URL}")
+
+        HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+        BODY=$(echo "$RESPONSE" | sed '$d')
+
+        echo "HTTP Status: ${HTTP_CODE}"
+        echo "Response: ${BODY}"
+
+        if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
+          echo "✅ Deployment triggered successfully!"
+          echo "deployments=${BODY}" >> $GITHUB_OUTPUT
+        else
+          echo "::error::Deployment failed with HTTP ${HTTP_CODE}: ${BODY}"
+          exit 1
+        fi
